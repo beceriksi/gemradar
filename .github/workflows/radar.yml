@@ -3,7 +3,7 @@ name: Gem & Alpha Hunter Bot
 on:
   schedule:
     - cron: '*/30 * * * *'  # Her 30 dakikada bir otomatik çalışır
-  workflow_dispatch:        # İstediğin an manuel çalıştırma imkanı verir
+  workflow_dispatch:        # GitHub üzerinden elle başlatma imkanı sağlar
 
 jobs:
   build-and-run:
