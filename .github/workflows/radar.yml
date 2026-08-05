@@ -1,0 +1,28 @@
+name: Gem & Alpha Hunter Bot
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # Her 30 dakikada bir otomatik çalışır
+  workflow_dispatch:        # İstediğin an manuel çalıştırma imkanı verir
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Repoyu Çek
+        uses: actions/checkout@v3
+
+      - name: Python Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Bağımlılıkları Yükle
+        run: pip install -r requirements.txt
+
+      - name: Botu Çalıştır
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOPLUS_API_KEY: ${{ secrets.GOPLUS_API_KEY }}
+        run: python main.py
