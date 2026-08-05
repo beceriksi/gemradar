@@ -5,11 +5,11 @@ import requests
 # Secrets / Environment Variables
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "") # Opsiyonel, anahtarsız da sınırlı çalışır
+GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 
 def send_telegram(message):
     if not BOT_TOKEN or not CHAT_ID:
-        print("Telegram Token veya Chat ID bulunamadı!")
+        print("Error: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing!")
         return
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
@@ -19,9 +19,10 @@ def send_telegram(message):
         "disable_web_page_preview": True
     }
     try:
-        requests.post(url, json=payload, timeout=10)
+        res = requests.post(url, json=payload, timeout=10)
+        res.raise_for_status()
     except Exception as e:
-        print(f"Telegram Gönderim Hatası: {e}")
+        print(f"Telegram Delivery Error: {e}")
 
 # 1. AĞ VE SERMAYE AKIŞI ANALİZİ (DefiLlama)
 def get_top_hot_chains():
@@ -40,26 +41,26 @@ def get_top_hot_chains():
             })
         return hot_chains
     except Exception as e:
-        print(f"DefiLlama API Hatası: {e}")
+        print(f"DefiLlama API Error: {e}")
         return []
 
 # 2. DEX YENİ & HACİMLİ GEM TARAMASI (DexScreener)
 def get_trending_gems():
     try:
-        # Son eklenen/trend olan çiftleri tara
-        url = "https://api.dexscreener.com/latest/dex/search?q=solana%20bsc%20ethereum"
+        # DexScreener arama sorgusuna Robinhood, Solana, BSC, Ethereum ve Base eklendi
+        url = "https://api.dexscreener.com/latest/dex/search?q=robinhood%20solana%20bsc%20ethereum%20base"
         res = requests.get(url, timeout=10).json()
         pairs = res.get("pairs", [])
         
         selected_gems = []
-        for p in pairs[:15]: # İlk 15 çift incelemeye alınır
+        for p in pairs[:20]: # İlk 20 çift detaylı incelemeye alınır
             fdv = p.get("fdv", 0) or 0
             mcap = p.get("marketCap", 0) or 0
             volume_24h = p.get("volume", {}).get("h24", 0) or 0
             liquidity = p.get("liquidity", {}).get("usd", 0) or 0
             
-            # Filtreler: Liquidity > $10k, MarketCap < $5M (Gem potansiyeli), 24h Hacim > $50k
-            if liquidity >= 10000 and 5000 <= mcap <= 5000000 and volume_24h >= 50000:
+            # Filtreler: Likidite >= $5k, MarketCap <= $10M, 24h Hacim >= $10k
+            if liquidity >= 5000 and 1000 <= mcap <= 10000000 and volume_24h >= 10000:
                 selected_gems.append({
                     "chain": p.get("chainId", "unknown").upper(),
                     "symbol": p.get("baseToken", {}).get("symbol", "N/A"),
@@ -73,30 +74,31 @@ def get_trending_gems():
                 })
         return selected_gems
     except Exception as e:
-        print(f"DexScreener API Hatası: {e}")
+        print(f"DexScreener API Error: {e}")
         return []
 
 # 3. ON-CHAIN GÜVENLİK & RUG-PULL TESTİ (GoPlus Security)
 def audit_token_safety(chain_id, token_address):
-    # Ağ isimlerini GoPlus formatına çevir
+    # Ağ isimlerini GoPlus Chain ID formatına çevir
     chain_mapping = {
+        "ROBINHOOD": "4663",
         "ETHEREUM": "1",
         "BSC": "56",
         "SOLANA": "solana",
         "ARBITRUM": "42161",
         "AVALANCHE": "43114",
-        "POLYGON": "137"
+        "POLYGON": "137",
+        "BASE": "8453"
     }
     goplus_chain = chain_mapping.get(chain_id.upper(), "1")
     
     if goplus_chain == "solana":
-        # Solana için basit kontrol yapısı
         return {"is_safe": True, "score": "8/10", "risk_factors": []}
         
     try:
         url = f"https://api.gopluslabs.io/api/v1/token_security/{goplus_chain}?contract_addresses={token_address}"
         res = requests.get(url, timeout=10).json()
-        result = res.get("result", {}).get(token_address.lower(), {})
+        result = res.get("result", {}).get(token_address.lower(), {}) if res.get("result") else {}
         
         risks = []
         is_honeypot = result.get("is_honeypot", "0") == "1"
@@ -119,8 +121,8 @@ def audit_token_safety(chain_id, token_address):
             "risk_factors": risks
         }
     except Exception as e:
-        print(f"GoPlus Audit Hatası: {e}")
-        return {"is_safe": True, "score": "Bilinmiyor", "risk_factors": ["Güvenlik doğrulaması yapılamadı"]}
+        print(f"GoPlus Audit Error: {e}")
+        return {"is_safe": True, "score": "Kontrol Edilemedi", "risk_factors": ["Güvenlik doğrulaması yapılamadı"]}
 
 # 4. BOTU ÇALIŞTIRMA VE RAPORLAMA ENGINE
 def run_alpha_hunter():
@@ -144,7 +146,7 @@ def run_alpha_hunter():
     
     gem_reports = []
     
-    for g in gems[:3]: # En yüksek potansiyelli ilk 3 gem'i detaylı raporla
+    for g in gems[:5]: # En yüksek potansiyelli ilk 5 gem'i detaylı raporla
         audit = audit_token_safety(g['chain'], g['address'])
         
         # Eğer Honeypot ise direkt eliyoruz
