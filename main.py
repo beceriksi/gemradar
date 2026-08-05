@@ -7,9 +7,6 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 GOPLUS_API_KEY = os.getenv("GOPLUS_API_KEY", "")
 
-# 🧠 BİLDİRİLEN COIN'LERİ HAFIZADA TUTAN ÖNBELLEK (Aynı coini tekrar atmaması için)
-SENT_TOKENS = set()
-
 def send_telegram(message):
     if not BOT_TOKEN or not CHAT_ID:
         print("Error: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing!")
@@ -54,8 +51,7 @@ def discover_smart_traders(token_address):
 # 2. TÜM AĞLARI OTOMATİK TARAYAN DİNAMİK GEM DEDEKTÖRÜ
 def get_trending_gems():
     try:
-        # 🌐 Sabit ağ isimleri yerine genel likidite çiftleri taranır.
-        # DexScreener'a yarın yeni bir ağ eklense bile OTOMATİK kapsanır.
+        # Genişlik taraması: Yeni eklenen tüm ağları otomatik kapsar.
         url = "https://api.dexscreener.com/latest/dex/search?q=USDT%20USDC%20SOL%20ETH%20ROBINHOOD"
         res = requests.get(url, timeout=10).json()
         pairs = res.get("pairs", [])
@@ -63,8 +59,7 @@ def get_trending_gems():
         selected_gems = []
         for p in pairs[:40]:
             address = p.get("baseToken", {}).get("address")
-            
-            if not address or address in SENT_TOKENS:
+            if not address:
                 continue
 
             mcap = p.get("marketCap", 0) or 0
@@ -77,10 +72,10 @@ def get_trending_gems():
             sells = txns_24h.get("sells", 0) or 0
             total_txns = buys + sells
 
-            # 🛡️ DUMP & YAYPAY HACİM (WASH TRADING) ENGELLEME FİLTRELERİ:
-            # - Likidite >= $5,000[cite: 5]
-            # - Market Cap: $1,000 - $10,000,000[cite: 5]
-            # - 24s Hacim >= $10,000[cite: 5]
+            # 🛡️ ORGANİK HACİM & FİLTRELER:
+            # - Likidite >= $5,000
+            # - Market Cap: $1,000 - $10,000,000
+            # - 24s Hacim >= $10,000
             # - Toplam İşlem >= 150
             # - En az 100 Alım İşlemi (Buys >= 100)
             # - KESİN KURAL: Alım sayısı Satım sayısından FAZLA olmalı (buys > sells)
@@ -118,7 +113,6 @@ def audit_token_safety(chain_id, token_address):
     }
     goplus_chain = chain_mapping.get(chain_id.upper(), None)
     
-    # Desteklenmeyen yeni ağlar için çökme yaşanmaması için koruma
     if not goplus_chain:
         return {"is_safe": True, "score": "Yeni Ağ (On-Chain Destek Bekleniyor)", "risk_factors": []}
 
@@ -141,11 +135,15 @@ def audit_token_safety(chain_id, token_address):
     except Exception as e:
         return {"is_safe": True, "score": "Kontrol Edilemedi", "risk_factors": []}
 
-# 4. ANLIK SİNYAL BİLDİRİM MOTORU
+# 4. SİNYAL BİLDİRİM MOTORU
 def scan_and_notify():
     gems = get_trending_gems()
     
-    for g in gems:
+    if not gems:
+        print("Uygun kriterlerde yeni sinyal bulunamadı.")
+        return
+
+    for g in gems[:3]:
         audit = audit_token_safety(g['chain'], g['address'])
         if "🚨 HONEYPOT" in audit["risk_factors"]:
             continue
@@ -167,14 +165,11 @@ def scan_and_notify():
         )
         
         send_telegram(message)
-        SENT_TOKENS.add(g['address'])
-        print(f"Anlık Sinyal Atıldı: {g['symbol']} ({g['chain']})")
+        print(f"Sinyal Gönderildi: {g['symbol']} ({g['chain']})")
+        time.sleep(1)
 
+# GitHub Actions için tek seferlik çalıştırma yapısı (Sarı ışıkta takılmayı önler)
 if __name__ == "__main__":
-    print("Anlık Sinyal Botu Çalışıyor (Her 60 saniyede bir tarar)...")
-    while True:
-        try:
-            scan_and_notify()
-        except Exception as e:
-            print(f"Döngü Hatası: {e}")
-        time.sleep(60)
+    print("Tarama başlatıldı...")
+    scan_and_notify()
+    print("Tarama tamamlandı!")
