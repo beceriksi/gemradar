@@ -90,7 +90,7 @@ def get_top_hot_chains():
         print(f"DefiLlama API Error: {e}")
         return []
 
-# 4. DEX YENİ & HACİMLİ GEM TARAMASI (DexScreener)
+# 4. DEX YENİ & ORGANİK HACİMLİ GEM TARAMASI
 def get_trending_gems():
     try:
         url = "https://api.dexscreener.com/latest/dex/search?q=robinhood%20solana%20bsc%20ethereum%20base"
@@ -103,7 +103,24 @@ def get_trending_gems():
             volume_24h = p.get("volume", {}).get("h24", 0) or 0
             liquidity = p.get("liquidity", {}).get("usd", 0) or 0
             
-            if liquidity >= 5000 and 1000 <= mcap <= 10000000 and volume_24h >= 10000:
+            # İşlem ve alıcı/satıcı detayları
+            txns_24h = p.get("txns", {}).get("h24", {}) or {}
+            buys = txns_24h.get("buys", 0) or 0
+            sells = txns_24h.get("sells", 0) or 0
+            total_txns = buys + sells
+
+            # 🛡️ ORGANİK FİLTRELER:
+            # - Likidite >= $5,000[cite: 5]
+            # - Market Cap: $1,000 - $10,000,000[cite: 5]
+            # - 24s Hacim >= $10,000[cite: 5]
+            # - En az 150 toplam işlem (Az sayıda işlem yapan sahte bot gruplarını eler)
+            # - En az 80 gerçek alıcı (Buys)
+            if (liquidity >= 5000 and 
+                1000 <= mcap <= 10000000 and 
+                volume_24h >= 10000 and 
+                total_txns >= 150 and 
+                buys >= 80):
+                
                 selected_gems.append({
                     "chain": p.get("chainId", "unknown").upper(),
                     "symbol": p.get("baseToken", {}).get("symbol", "N/A"),
@@ -113,6 +130,8 @@ def get_trending_gems():
                     "mcap": mcap,
                     "liquidity": liquidity,
                     "volume_24h": volume_24h,
+                    "buys": buys,
+                    "sells": sells,
                     "url": p.get("url", "")
                 })
         return selected_gems
@@ -168,7 +187,7 @@ def audit_token_safety(chain_id, token_address):
 
 # 6. ANA BOT ENGINE
 def run_alpha_hunter():
-    print("Smart Money + Narrative Radar Taraması Başladı...")
+    print("Smart Money + Narrative + Organik Hacim Taraması Başladı...")
     
     active_narratives = get_current_narratives()
     narrative_str = " ".join(active_narratives)
@@ -184,7 +203,7 @@ def run_alpha_hunter():
         "🌐 *USDT / Likidite Yoğunluğuna Sahip Ağlar:*\n"
         f"{chain_msg}\n\n"
         "───────────────────────────\n"
-        "🎯 *AKILLI CÜZDAN GİRİŞİ YAPAN TEMİZ PROJELER:*\n\n"
+        "🎯 *AKILLI CÜZDAN GİRİŞİ YAPAN ORGANİK PROJELER:*\n\n"
     )
     
     gem_reports = []
@@ -204,7 +223,7 @@ def run_alpha_hunter():
             f"📊 *Cüzdan Performansı:* PnL: `{smart_trader['pnl']}` | Kazanma Oranı: `{smart_trader['win_rate']}`\n"
             f"🔗 *Ağ:* `{g['chain']}` | 🛡️ *Güvenlik Skoru:* `{audit['score']}`\n"
             f"💰 *Market Cap:* `${g['mcap']:,.0f}` | 💧 *Likidite:* `${g['liquidity']:,.0f}`\n"
-            f"📈 *24s Hacim:* `${g['volume_24h']:,.0f}`\n"
+            f"📈 *24s Hacim:* `${g['volume_24h']:,.0f}` (Alım: {g['buys']} / Satım: {g['sells']})\n"
             f"📍 *Kontrat:* `{g['address']}`\n"
             f"⚠️ *Risk Faktörleri:* {risk_str}\n"
             f"🔗 [DexScreener'da İncele]({g['url']})\n\n"
@@ -214,12 +233,12 @@ def run_alpha_hunter():
         time.sleep(1)
         
     if not gem_reports:
-        full_report = header + "⚠️ *Bu taramada güvenlik ve Smart Money süzgecimizden geçen uygun gem bulunamadı.*"
+        full_report = header + "⚠️ *Bu taramada organik hacim, güvenlik ve Smart Money süzgecimizden geçen uygun gem bulunamadı.*"
     else:
         full_report = header + "".join(gem_reports)
         
     send_telegram(full_report)
-    print("Smart Money + Narrative Raporu Telegram'a Gönderildi!")
+    print("Rapor Telegram'a Gönderildi!")
 
 if __name__ == "__main__":
     run_alpha_hunter()
