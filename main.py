@@ -27,6 +27,7 @@ def send_telegram(message):
     except Exception as e:
         print(f"Telegram Delivery Error: {e}")
 
+# 1. AKILLI CÜZDAN DEDEKTÖRÜ
 def discover_smart_traders(token_address):
     try:
         wallet_prefix = token_address[:6]
@@ -50,29 +51,39 @@ def discover_smart_traders(token_address):
             "label": "Top PnL Trader"
         }
 
+# 2. TÜM AĞLARI OTOMATİK TARAYAN DİNAMİK GEM DEDEKTÖRÜ
 def get_trending_gems():
     try:
-        url = "https://api.dexscreener.com/latest/dex/search?q=robinhood%20solana%20bsc%20ethereum%20base"
+        # 🌐 Sabit ağ isimleri yerine genel likidite çiftleri taranır.
+        # DexScreener'a yarın yeni bir ağ eklense bile OTOMATİK kapsanır.
+        url = "https://api.dexscreener.com/latest/dex/search?q=USDT%20USDC%20SOL%20ETH%20ROBINHOOD"
         res = requests.get(url, timeout=10).json()
         pairs = res.get("pairs", [])
         
         selected_gems = []
-        for p in pairs[:30]:
+        for p in pairs[:40]:
+            address = p.get("baseToken", {}).get("address")
+            
+            if not address or address in SENT_TOKENS:
+                continue
+
             mcap = p.get("marketCap", 0) or 0
             volume_24h = p.get("volume", {}).get("h24", 0) or 0
             liquidity = p.get("liquidity", {}).get("usd", 0) or 0
-            address = p.get("baseToken", {}).get("address")
+            chain_id = p.get("chainId", "unknown").upper()
             
-            # Zaten bildirilmişse taramayı pas geç
-            if address in SENT_TOKENS:
-                continue
-
             txns_24h = p.get("txns", {}).get("h24", {}) or {}
             buys = txns_24h.get("buys", 0) or 0
             sells = txns_24h.get("sells", 0) or 0
             total_txns = buys + sells
 
-            # Filtreler (Hacim, İşlem Sayısı, Alıcı > Satıcı)
+            # 🛡️ DUMP & YAYPAY HACİM (WASH TRADING) ENGELLEME FİLTRELERİ:
+            # - Likidite >= $5,000[cite: 5]
+            # - Market Cap: $1,000 - $10,000,000[cite: 5]
+            # - 24s Hacim >= $10,000[cite: 5]
+            # - Toplam İşlem >= 150
+            # - En az 100 Alım İşlemi (Buys >= 100)
+            # - KESİN KURAL: Alım sayısı Satım sayısından FAZLA olmalı (buys > sells)
             if (liquidity >= 5000 and 
                 1000 <= mcap <= 10000000 and 
                 volume_24h >= 10000 and 
@@ -81,7 +92,7 @@ def get_trending_gems():
                 buys > sells):
                 
                 selected_gems.append({
-                    "chain": p.get("chainId", "unknown").upper(),
+                    "chain": chain_id,
                     "symbol": p.get("baseToken", {}).get("symbol", "N/A"),
                     "name": p.get("baseToken", {}).get("name", "N/A"),
                     "address": address,
@@ -98,14 +109,19 @@ def get_trending_gems():
         print(f"DexScreener API Error: {e}")
         return []
 
+# 3. ON-CHAIN GÜVENLİK & RUG-PULL TESTİ (GoPlus Security)
 def audit_token_safety(chain_id, token_address):
     chain_mapping = {
         "ROBINHOOD": "4663", "ETHEREUM": "1", "BSC": "56",
         "SOLANA": "solana", "ARBITRUM": "42161", "AVALANCHE": "43114",
         "POLYGON": "137", "BASE": "8453"
     }
-    goplus_chain = chain_mapping.get(chain_id.upper(), "1")
+    goplus_chain = chain_mapping.get(chain_id.upper(), None)
     
+    # Desteklenmeyen yeni ağlar için çökme yaşanmaması için koruma
+    if not goplus_chain:
+        return {"is_safe": True, "score": "Yeni Ağ (On-Chain Destek Bekleniyor)", "risk_factors": []}
+
     if goplus_chain == "solana":
         return {"is_safe": True, "score": "8/10", "risk_factors": []}
         
@@ -125,7 +141,7 @@ def audit_token_safety(chain_id, token_address):
     except Exception as e:
         return {"is_safe": True, "score": "Kontrol Edilemedi", "risk_factors": []}
 
-# ⚡ ANLIK BİLDİRİM MOTORU
+# 4. ANLIK SİNYAL BİLDİRİM MOTORU
 def scan_and_notify():
     gems = get_trending_gems()
     
@@ -137,7 +153,6 @@ def scan_and_notify():
         smart_trader = discover_smart_traders(g['address'])
         risk_str = "Yok (Temiz)" if not audit['risk_factors'] else ", ".join(audit['risk_factors'])
         
-        # Sinyal Yakalandığı An Tekli Mesaj Şeklinde Atılır
         message = (
             f"⚡ *YENİ ANLIK SİNYAL YAKALANDI!*\n\n"
             f"🪙 *{g['name']} (${g['symbol']})*\n"
@@ -152,14 +167,14 @@ def scan_and_notify():
         )
         
         send_telegram(message)
-        SENT_TOKENS.add(g['address']) # Bildirilen token'ı listeye ekle
-        print(f"Anlık Sinyal Atıldı: {g['symbol']}")
+        SENT_TOKENS.add(g['address'])
+        print(f"Anlık Sinyal Atıldı: {g['symbol']} ({g['chain']})")
 
 if __name__ == "__main__":
-    print("Anlık Sinyal Botu Çalışıyor (Her 60 saniyede bir kontrol eder)...")
+    print("Anlık Sinyal Botu Çalışıyor (Her 60 saniyede bir tarar)...")
     while True:
         try:
             scan_and_notify()
         except Exception as e:
             print(f"Döngü Hatası: {e}")
-        time.sleep(60) # 60 saniyede bir piyasayı tarar
+        time.sleep(60)
