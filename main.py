@@ -103,23 +103,26 @@ def get_trending_gems():
             volume_24h = p.get("volume", {}).get("h24", 0) or 0
             liquidity = p.get("liquidity", {}).get("usd", 0) or 0
             
-            # İşlem ve alıcı/satıcı detayları
+            # İşlem detayları
             txns_24h = p.get("txns", {}).get("h24", {}) or {}
             buys = txns_24h.get("buys", 0) or 0
             sells = txns_24h.get("sells", 0) or 0
             total_txns = buys + sells
 
-            # 🛡️ ORGANİK FİLTRELER:
-            # - Likidite >= $5,000[cite: 5]
-            # - Market Cap: $1,000 - $10,000,000[cite: 5]
-            # - 24s Hacim >= $10,000[cite: 5]
-            # - En az 150 toplam işlem (Az sayıda işlem yapan sahte bot gruplarını eler)
-            # - En az 80 gerçek alıcı (Buys)
+            # 🛡️ DUMP & SATICI BASKISI ENGELLEME FİLTRELERİ:
+            # 1. Likidite >= $5,000[cite: 5]
+            # 2. Market Cap: $1,000 - $10,000,000[cite: 5]
+            # 3. 24s Hacim >= $10,000[cite: 5]
+            # 4. Toplam İşlem >= 150
+            # 5. En az 100 Alım İşlemi (Buys >= 100)
+            # 6. KESİN KURAL: Alım sayısı Satım sayısından FAZLA olmalı (buys > sells).
+            #    Bu kural (165 Buys / 222 Sells) gibi dump yiyen projeleri anında eler!
             if (liquidity >= 5000 and 
                 1000 <= mcap <= 10000000 and 
                 volume_24h >= 10000 and 
                 total_txns >= 150 and 
-                buys >= 80):
+                buys >= 100 and 
+                buys > sells):
                 
                 selected_gems.append({
                     "chain": p.get("chainId", "unknown").upper(),
