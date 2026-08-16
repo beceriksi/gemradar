@@ -17,30 +17,30 @@ COOLDOWN_MINUTES = 90                 # Aynı coin için tekrar uyarı vermeden 
 MAX_WORKERS = 8                       # Eşzamanlı istek sayısı
 STATE_FILE = "state.json"
 
-BYBIT_TICKERS_URL = "https://api.bybit.com/v5/market/tickers"
-BYBIT_KLINE_URL   = "https://api.bybit.com/v5/market/kline"
+OKX_TICKERS_URL = "https://www.okx.com/api/v5/market/tickers"
+OKX_CANDLES_URL = "https://www.okx.com/api/v5/market/candles"
 
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 
 def get_usdt_symbols():
-    """24s hacmi belirli bir eşiğin üzerinde olan USDT paritelerini getirir."""
-    r = requests.get(BYBIT_TICKERS_URL, params={"category": "spot"}, timeout=15)
+    """24s hacmi belirli bir eşiğin üzerinde olan USDT paritelerini getirir (OKX spot)."""
+    r = requests.get(OKX_TICKERS_URL, params={"instType": "SPOT"}, timeout=15)
     r.raise_for_status()
-    data = r.json()["result"]["list"]
+    data = r.json()["data"]
     symbols = []
     for item in data:
-        symbol = item["symbol"]
-        if not symbol.endswith("USDT"):
+        inst_id = item["instId"]          # örn: "BTC-USDT"
+        if not inst_id.endswith("-USDT"):
             continue
-        turnover = float(item.get("turnover24h", 0) or 0)
+        turnover = float(item.get("volCcy24h", 0) or 0)   # USDT cinsinden 24s hacim
         if turnover >= MIN_24H_TURNOVER_USDT:
-            symbols.append(symbol)
+            symbols.append(inst_id)
     return symbols
 
 
-def analyze_symbol(symbol):
+def analyze_symbol(inst_id):
     """
     Son kapanan saatlik mumu inceler:
     - hacim geçmiş ortalamaya göre ne kadar arttı
@@ -49,24 +49,20 @@ def analyze_symbol(symbol):
     """
     try:
         r = requests.get(
-            BYBIT_KLINE_URL,
-            params={
-                "category": "spot",
-                "symbol": symbol,
-                "interval": "60",
-                "limit": BASELINE_HOURS + 3,
-            },
+            OKX_CANDLES_URL,
+            params={"instId": inst_id, "bar": "1H", "limit": str(BASELINE_HOURS + 3)},
             timeout=15,
         )
         r.raise_for_status()
-        rows = r.json()["result"]["list"]
-        if len(rows) < BASELINE_HOURS + 2:
+        rows = r.json()["data"]
+        # OKX formatı: [ts, open, high, low, close, vol, volCcy, volCcyQuote, confirm]
+        # en yeniden en eskiye doğru döner -> kronolojik sıraya çeviriyoruz
+        rows = sorted(rows, key=lambda x: int(x[0]))
+        # confirm == "1" olan mumlar kapanmış demektir, sadece onları kullan
+        closed = [row for row in rows if row[8] == "1"]
+        if len(closed) < BASELINE_HOURS + 2:
             return None
 
-        # Bybit en yeniden en eskiye doğru döner -> kronolojik sıraya çeviriyoruz
-        rows = sorted(rows, key=lambda x: int(x[0]))
-        # son eleman henüz kapanmamış (an içindeki) mum olabilir, onu hesaba katmıyoruz
-        closed = rows[:-1]
         last = closed[-1]
         baseline = closed[-1 - BASELINE_HOURS:-1]
 
@@ -74,9 +70,9 @@ def analyze_symbol(symbol):
         last_high  = float(last[2])
         last_low   = float(last[3])
         last_close = float(last[4])
-        last_volume = float(last[5])
+        last_volume = float(last[6])   # volCcy: USDT cinsinden hacim
 
-        baseline_vols = [float(c[5]) for c in baseline]
+        baseline_vols = [float(c[6]) for c in baseline]
         if not baseline_vols:
             return None
         avg_baseline = sum(baseline_vols) / len(baseline_vols)
@@ -97,7 +93,7 @@ def analyze_symbol(symbol):
 
         if early_move:
             return {
-                "symbol": symbol,
+                "symbol": inst_id.replace("-", ""),   # TradingView'de aratmak için: BTCUSDT
                 "vol_change_pct": vol_change_pct,
                 "price_change_pct": price_change_pct,
                 "clv": clv,
